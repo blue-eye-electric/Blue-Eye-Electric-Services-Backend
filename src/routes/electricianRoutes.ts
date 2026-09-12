@@ -14,6 +14,7 @@ import {
 } from '../middleware/authMiddleware';
 import {
   getElectricians,
+  getElectricianForOrder,
   createElectrician,
 } from '../controllers/electricianController';
 import { requireAdmin } from '../middleware/roleCheckMiddleware';
@@ -22,6 +23,13 @@ import upload from '../middleware/uploadMiddleware';
 const router = Router();
 
 router.get('/electricians',requireAdmin, getElectricians);
+
+router.get(
+  '/electricians/order/:orderId',
+  requireAdmin,
+  getElectricianForOrder,
+);
+
 router.patch(
   '/electricians/:id',
   requireAdmin,

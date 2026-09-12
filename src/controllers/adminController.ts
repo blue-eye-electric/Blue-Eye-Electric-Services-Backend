@@ -21,7 +21,7 @@ export const findDistance = async (
       error: orderError,
     } = await supabase
       .from('orders')
-      .select('id, latitude, longitude')
+      .select('id, latitude, longitude, service_area')
       .eq('id', orderId)
       .single();
 
@@ -51,6 +51,7 @@ export const findDistance = async (
       .select(
         'id, name, latitude, longitude, status',
       )
+      .eq('service_area', order.service_area)
       .eq('role', 'electrician')
       .eq('status','approved')
       .not('latitude', 'is', null)

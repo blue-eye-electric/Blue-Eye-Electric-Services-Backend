@@ -6,6 +6,7 @@ import cron from 'node-cron';
 import orderRoutes from './routes/orderRoutes';
 import electricianRoutes from './routes/electricianRoutes';
 import adminRoutes from './routes/adminRoutes';
+import serviceAreaRoutes from './routes/serviceAreaRoutes';
 import {
   forgotPassword,
   loginUser,
@@ -56,6 +57,7 @@ app.get('/health', (req, res) => {
 app.use('/api', orderRoutes);
 app.use('/api', electricianRoutes);
 app.use('/api', adminRoutes);
+app.use('/api', serviceAreaRoutes);
 
 const PORT = Number(process.env.PORT) || 4000;
 

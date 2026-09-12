@@ -20,6 +20,7 @@ export const getElectricians = async (
         email,
         mobile_number,
         current_address,
+        service_area,
         latitude,
         longitude,
         profile_photo_url,
@@ -115,6 +116,85 @@ export const getElectricians = async (
   }
 };
 
+export const getElectricianForOrder = async (
+  req: Request,
+  res: Response,
+) => {
+  try {
+    const { orderId } = req.params;
+
+    const { data: order, error: orderError } = await supabase
+      .from('orders')
+      .select('service_area')
+      .eq('id', orderId)
+      .single();
+
+    if (orderError || !order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found',
+      });
+    }
+
+    if (!order.service_area) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order service area not found',
+      });
+    }
+
+    const { data: electricians, error: electricianError } =
+      await supabase
+        .from('users')
+        .select(`
+          id,
+          name,
+          email,
+          mobile_number,
+          current_address,
+          service_area,
+          latitude,
+          longitude,
+          profile_photo_url,
+          valid_id_url,
+          valid_id_number,
+          valid_id_type,
+          status,
+          created_at,
+          updated_at
+        `)
+        .eq('role', 'electrician')
+        .eq('status', 'approved')
+        .eq('service_area', order.service_area)
+        .order('created_at', { ascending: false });
+
+    if (electricianError) {
+      console.error(
+        'Supabase get electricians for order error:',
+        electricianError,
+      );
+
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to fetch electricians for order',
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      serviceArea: order.service_area,
+      electricians: electricians ?? [],
+    });
+  } catch (error) {
+    console.error('Get electricians for order error:', error);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+    });
+  }
+};
+
 export const createElectrician = async (
   req: Request,
   res: Response,
@@ -126,6 +206,7 @@ export const createElectrician = async (
       mobileNumber,
       password,
       currentAddress,
+      serviceArea,
       latitude,
       longitude,
       validIdNumber,
@@ -134,6 +215,7 @@ export const createElectrician = async (
 
     const normalizedMobileNumber = String(mobileNumber ?? '').trim();
     const normalizedEmail = String(email ?? '').trim().toLowerCase();
+    const normalizedServiceArea = String(serviceArea ?? '').trim();
 const files = req.files as {
       [fieldname: string]: Express.Multer.File[];
     };
@@ -162,6 +244,7 @@ const files = req.files as {
       !mobileNumber ||
       !password ||
       !currentAddress ||
+      !normalizedServiceArea ||
       latitude === undefined ||
       longitude === undefined ||
       !validIdNumber ||
@@ -376,6 +459,7 @@ const profilePhotoUrl = profilePhotoData.publicUrl;
         email: normalizedEmail,
         mobile_number: normalizedMobileNumber,
         current_address: currentAddress,
+        service_area: normalizedServiceArea,
         latitude: Number(latitude),
         longitude: Number(longitude),
         profile_photo_url: profilePhotoUrl,
@@ -389,6 +473,7 @@ const profilePhotoUrl = profilePhotoData.publicUrl;
         name,
         mobile_number,
         current_address,
+        service_area,
         latitude,
         longitude,
         valid_id_url,
@@ -487,6 +572,7 @@ export const updateElectrician = async (
     const allowedFields = [
       "name",
       "current_address",
+      "service_area",
       "latitude",
       "longitude",
       "valid_id_number",
@@ -497,6 +583,16 @@ export const updateElectrician = async (
     const invalidFields = Object.keys(updateData).filter(
       (field) => !allowedFields.includes(field),
     );
+
+    if (
+      updateData.service_area !== undefined &&
+      !String(updateData.service_area).trim()
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Service area is required",
+      });
+    }
 
     if (invalidFields.length > 0) {
       return res.status(400).json({

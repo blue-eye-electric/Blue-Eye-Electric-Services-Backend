@@ -20,15 +20,19 @@ export const createOrder = async (
       service,
       serviceDate,
       serviceTime,
+      serviceArea,
       description,
       isProjectDiscussion
     } = req.body;
+
+    const normalizedServiceArea = String(serviceArea ?? '').trim();
 
     // Validate required fields
     if (
       !customerName ||
       !customerPhone ||
-      !customerAddress
+      !customerAddress ||
+      !normalizedServiceArea
     ) {
       return res.status(400).json({
         success: false,
@@ -65,6 +69,7 @@ export const createOrder = async (
         longitude,
         service_date: serviceDate,
         service_time: serviceTime,
+        service_area: normalizedServiceArea,
         description,
         status: 'pending',
         electrician_id: null,
@@ -278,6 +283,7 @@ export const getOrders = async (
           longitude,
           service_date,
           service_time,
+          service_area,
           service_type,
           description,
           photo_urls,
