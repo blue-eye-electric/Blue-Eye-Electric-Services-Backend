@@ -25,8 +25,9 @@ export const getElectricians = async (
         longitude,
         profile_photo_url,
         valid_id_url,
+        address_proof_url,
+        bank_account_proof_url,
         valid_id_number,
-        valid_id_type,
         status,
         created_at,
         updated_at
@@ -64,6 +65,8 @@ export const getElectricians = async (
       const electricians = await Promise.all(
         (data ?? []).map(async (electrician) => {
           let documentUrl: string | null = null;
+          let addressProofUrl: string | null = null;
+          let bankAccountProofUrl: string | null = null;
 
           if (electrician.valid_id_url) {
             const {
@@ -86,9 +89,53 @@ export const getElectricians = async (
             }
           }
 
+          if (electrician.address_proof_url) {
+            const {
+              data: signedUrlData,
+              error: signedUrlError,
+            } = await supabase.storage
+              .from('documents/')
+              .createSignedUrl(
+                electrician.address_proof_url,
+                60 * 60,
+              );
+
+            if (signedUrlError) {
+              console.error(
+                `Failed to create address proof signed URL for electrician ${electrician.id}:`,
+                signedUrlError,
+              );
+            } else {
+              addressProofUrl = signedUrlData.signedUrl;
+            }
+          }
+
+          if (electrician.bank_account_proof_url) {
+            const {
+              data: signedUrlData,
+              error: signedUrlError,
+            } = await supabase.storage
+              .from('documents/')
+              .createSignedUrl(
+                electrician.bank_account_proof_url,
+                60 * 60,
+              );
+
+            if (signedUrlError) {
+              console.error(
+                `Failed to create bank account proof signed URL for electrician ${electrician.id}:`,
+                signedUrlError,
+              );
+            } else {
+              bankAccountProofUrl = signedUrlData.signedUrl;
+            }
+          }
+
           return {
             ...electrician,
             valid_id_url: documentUrl,
+            address_proof_url: addressProofUrl,
+            bank_account_proof_url: bankAccountProofUrl,
           };
         }),
       );
@@ -158,7 +205,6 @@ export const getElectricianForOrder = async (
           profile_photo_url,
           valid_id_url,
           valid_id_number,
-          valid_id_type,
           status,
           created_at,
           updated_at
@@ -210,7 +256,6 @@ export const createElectrician = async (
       latitude,
       longitude,
       validIdNumber,
-      validIdType,
     } = req.body;
 
     const normalizedMobileNumber = String(mobileNumber ?? '').trim();
@@ -222,6 +267,8 @@ const files = req.files as {
 
     const profilePhoto = files?.profilePhoto?.[0];
     const validId = files?.validId?.[0];
+    const addressProof = files?.addressProof?.[0];
+    const bankAccountProof = files?.bankAccountProof?.[0];
 
     if (!profilePhoto) {
       return res.status(400).json({
@@ -247,8 +294,7 @@ const files = req.files as {
       !normalizedServiceArea ||
       latitude === undefined ||
       longitude === undefined ||
-      !validIdNumber ||
-      !validIdType
+      !validIdNumber
     ) {
       return res.status(400).json({
         success: false,
@@ -271,18 +317,10 @@ const files = req.files as {
       });
     }
 
-    // Validate ID type
-    const allowedIdTypes = [
-      'aadhar_card',
-      'driving_license',
-      'voting_card',
-      'passport'
-    ];
-
-    if (!allowedIdTypes.includes(validIdType)) {
+    if (!/^\d{12}$/.test(String(validIdNumber).trim())) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid ID type',
+        message: 'Valid ID number must be exactly 12 digits',
       });
     }
 
@@ -337,6 +375,20 @@ const files = req.files as {
       });
     }
 
+    const { data: authUser, error: authError } =
+      await supabase.auth.admin.createUser({
+        email: normalizedEmail,
+        password,
+        email_confirm: true,
+      });
+
+    if (authError || !authUser.user) {
+      console.error('Create electrician auth user error:', authError);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create login account',
+      });
+    }
 
     const profileExtension =
       profilePhoto.originalname
@@ -353,14 +405,19 @@ const files = req.files as {
     const profileFileName =
       `${crypto.randomUUID()}.${profileExtension}`;
 
-    const validIdFileName =
-      `${crypto.randomUUID()}.${validIdExtension}`;
+    const adharCardPath =
+      `electricians/${crypto.randomUUID()}.${validIdExtension}`;
+
+    const addressProofPath = addressProof
+      ? `electricians/${crypto.randomUUID()}.${addressProof.originalname.split(".").pop()?.toLowerCase() || "file"}`
+      : null;
+
+    const bankProofPath = bankAccountProof
+      ? `electricians/${crypto.randomUUID()}.${bankAccountProof.originalname.split(".").pop()?.toLowerCase() || "file"}`
+      : null;
 
     const profilePhotoPath =
       `electricians/${profileFileName}`;
-
-    const validIdPath =
-      `electricians/${validIdFileName}`;
 
     // ---------------------------------------
     // Upload profile photo
@@ -396,11 +453,11 @@ const files = req.files as {
     // ---------------------------------------
 
     const {
-      error: validIdUploadError,
+      error: adharCardUploadError,
     } = await supabase.storage
       .from("documents")
       .upload(
-        validIdPath,
+        adharCardPath,
         validId.buffer,
         {
           contentType: validId.mimetype,
@@ -408,16 +465,18 @@ const files = req.files as {
         },
       );
 
-    if (validIdUploadError) {
+    if (adharCardUploadError) {
       console.error(
-        "Valid ID upload error:",
-        validIdUploadError,
+        "Aadhar card upload error:",
+        adharCardUploadError,
       );
 
       // Remove profile photo if ID upload fails
       await supabase.storage
-        .from("documents")
+        .from("profile")
         .remove([profilePhotoPath]);
+
+      await supabase.auth.admin.deleteUser(authUser.user.id);
 
       return res.status(500).json({
         success: false,
@@ -425,21 +484,31 @@ const files = req.files as {
       });
     }
 
+    const proofUploads = [
+      { file: addressProof, path: addressProofPath, label: "address proof" },
+      { file: bankAccountProof, path: bankProofPath, label: "bank proof" },
+    ];
 
-    const { data: authUser, error: authError } =
-      await supabase.auth.admin.createUser({
-        email: normalizedEmail,
-        password,
-        email_confirm: true,
-      });
+    for (const proof of proofUploads) {
+      if (!proof.file || !proof.path) continue;
 
-    if (authError || !authUser.user) {
-      console.error('Create electrician auth user error:', authError);
-      return res.status(500).json({
-        success: false,
-        message: 'Failed to create login account',
-      });
+      const { error: proofUploadError } = await supabase.storage
+        .from("documents")
+        .upload(proof.path, proof.file.buffer, {
+          contentType: proof.file.mimetype,
+          upsert: false,
+        });
+
+      if (proofUploadError) {
+        console.error(`${proof.label} upload error:`, proofUploadError);
+        await supabase.auth.admin.deleteUser(authUser.user.id);
+        return res.status(500).json({
+          success: false,
+          message: `Failed to upload ${proof.label}`,
+        });
+      }
     }
+
 
 const { data:profilePhotoData } = supabase.storage
   .from("profile")
@@ -463,9 +532,10 @@ const profilePhotoUrl = profilePhotoData.publicUrl;
         latitude: Number(latitude),
         longitude: Number(longitude),
         profile_photo_url: profilePhotoUrl,
-        valid_id_url: validIdPath,
+        valid_id_url: adharCardPath,
+        address_proof_url: addressProofPath,
+        bank_account_proof_url: bankProofPath,
         valid_id_number: validIdNumber,
-        valid_id_type: validIdType,
         status: 'pending',
       })
       .select(`
@@ -477,8 +547,9 @@ const profilePhotoUrl = profilePhotoData.publicUrl;
         latitude,
         longitude,
         valid_id_url,
+        address_proof_url,
+        bank_account_proof_url,
         valid_id_number,
-        valid_id_type,
         status,
         created_at,
         updated_at
@@ -534,7 +605,9 @@ export const updateElectrician = async (
           email,
           mobile_number,
           profile_photo_url,
-          valid_id_url
+          valid_id_url,
+          address_proof_url,
+          bank_account_proof_url
         `)
         .eq("id", id)
         .eq("role", "electrician")
@@ -576,7 +649,6 @@ export const updateElectrician = async (
       "latitude",
       "longitude",
       "valid_id_number",
-      "valid_id_type",
       "status",
     ];
 
@@ -598,6 +670,16 @@ export const updateElectrician = async (
       return res.status(400).json({
         success: false,
         message: `Invalid fields: ${invalidFields.join(", ")}`,
+      });
+    }
+
+    if (
+      updateData.valid_id_number !== undefined &&
+      !/^\d{12}$/.test(String(updateData.valid_id_number).trim())
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid ID number must be exactly 12 digits",
       });
     }
 
@@ -700,88 +782,54 @@ if (profilePhoto) {
     publicUrlData.publicUrl;
 }
 
-    /*
- * --------------------------------
- * VALID ID
- * --------------------------------
- */
-const validId = files?.validId?.[0];
+    const documentFiles = [
+      {
+        file: files?.validId?.[0],
+        column: "valid_id_url",
+        name: "adharCard",
+        label: "Aadhar card",
+      },
+      {
+        file: files?.bankAccountProof?.[0],
+        column: "bank_account_proof_url",
+        name: "bankProof",
+        label: "bank proof",
+      },
+      {
+        file: files?.addressProof?.[0],
+        column: "address_proof_url",
+        name: "addressProof",
+        label: "address proof",
+      },
+    ];
 
-if (validId) {
-  let validIdPath: string | null = null;
+    for (const document of documentFiles) {
+      if (!document.file) continue;
 
-  /*
-   * Try existing path first
-   */
-  if (existingElectrician.valid_id_url) {
-    const oldPath = getStoragePathFromUrl(
-      existingElectrician.valid_id_url,
-      "documents/electricians",
-      false,
-    );
+      const extension =
+        document.file.originalname
+          .split(".")
+          .pop()
+          ?.toLowerCase() || "file";
+      const documentPath = `electricians/${crypto.randomUUID()}.${extension}`;
 
-    if (oldPath) {
-      const exists = await fileExistsInBucket(
-        "documents",
-        oldPath,
-      );
-
-      if (exists) {
-        validIdPath = oldPath;
-      }
-    }
-  }
-
-  /*
-   * Existing file was not found.
-   * Create a new path.
-   */
-  if (!validIdPath) {
-    const validIdExtension =
-      validId.originalname
-        .split(".")
-        .pop()
-        ?.toLowerCase() || "jpg";
-
-        const validIdFileName =
-      `${crypto.randomUUID()}.${validIdExtension}`;
-        
-    validIdPath =
-      `electricians/${validIdFileName}`;
-  }
-
-  const { error: uploadError } =
-    await supabase.storage
-      .from("documents")
-      .upload(
-        validIdPath,
-        validId.buffer,
-        {
-          contentType: validId.mimetype,
+      const { error: uploadError } = await supabase.storage
+        .from("documents")
+        .upload(documentPath, document.file.buffer, {
+          contentType: document.file.mimetype,
           upsert: true,
-        },
-      );
+        });
 
-  if (uploadError) {
-    console.error(
-      "Valid ID upload error:",
-      uploadError,
-    );
+      if (uploadError) {
+        console.error(`${document.label} upload error:`, uploadError);
+        return res.status(500).json({
+          success: false,
+          message: `Failed to update ${document.label}`,
+        });
+      }
 
-    return res.status(500).json({
-      success: false,
-      message: "Failed to update valid ID",
-    });
-  }
-
-  const { data: publicUrlData } =
-    supabase.storage
-      .from("documents")
-      .getPublicUrl(validIdPath);
-
-  updateData.valid_id_url =
-    publicUrlData.publicUrl;
-}
+      updateData[document.column] = documentPath;
+    }
 
     /*
      * Nothing to update

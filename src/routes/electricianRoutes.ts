@@ -42,6 +42,14 @@ router.patch(
       name: "validId",
       maxCount: 1,
     },
+    {
+      name: "addressProof",
+      maxCount: 1,
+    },
+    {
+      name: "bankAccountProof",
+      maxCount: 1,
+    },
   ]),
   updateElectrician,
 );
@@ -49,6 +57,8 @@ router.patch(
 router.post('/electricians',upload.fields([
     { name: "profilePhoto", maxCount: 1 },
     { name: "validId", maxCount: 1 },
+    { name: "addressProof", maxCount: 1 },
+    { name: "bankAccountProof", maxCount: 1 },
   ]), createElectrician);
 
 router.post(

@@ -14,7 +14,7 @@ const upload = multer({
       "image/png",
     ];
 
-    const validIdTypes = [
+    const proofTypes = [
       "image/jpeg",
       "image/png",
       "application/pdf",
@@ -31,10 +31,23 @@ const upload = multer({
     }
 
     if (file.fieldname === "validId") {
-      if (!validIdTypes.includes(file.mimetype)) {
+      if (!proofTypes.includes(file.mimetype)) {
         return cb(
           new Error(
-            "Valid ID must be JPG, JPEG, PNG,HEIC, HEIF or PDF.",
+            "Valid ID must be JPG, JPEG, PNG, HEIC, HEIF or PDF.",
+          ),
+        );
+      }
+    }
+
+    if (
+      file.fieldname === "addressProof" ||
+      file.fieldname === "bankAccountProof"
+    ) {
+      if (!proofTypes.includes(file.mimetype)) {
+        return cb(
+          new Error(
+            "Address and bank account proofs must be JPG, JPEG, PNG or PDF.",
           ),
         );
       }
