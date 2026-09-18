@@ -4,6 +4,7 @@ import { supabase } from '../config/supabase';
 import { AuthRequest } from '../middleware/authMiddleware';
 import { sendJobAssignedNotification } from '../services/sendJobAssignedNotification';
 import { sendNewOrderNotificationToAdmins } from '../services/sendNewOrderNotificationToAdmins';
+import { isUserAdmin } from '../helpers/isUserAdmin';
 
 export const createOrder = async (
   req: Request,
@@ -303,6 +304,13 @@ export const getOrders = async (
 
     const offset = (parsedPage - 1) * parsedLimit;
 
+    const userId = req.user?.id;
+    
+
+    // Determine admin status using database check
+
+    const isAdmin = await isUserAdmin(userId|| '');
+
     let query = supabase
       .from('orders')
       .select(
@@ -325,7 +333,9 @@ export const getOrders = async (
           payment_details,
           total_amount,
           is_project_discussion,
-          created_at
+          created_at,
+          referral_code,
+          referral_commission
         `,
         { count: 'exact' },
       )
@@ -395,6 +405,76 @@ export const getOrders = async (
       });
     }
 
+    let orders = data ?? [];
+
+    if (isAdmin && orders.length > 0) {
+      const referralCodes = [
+        ...new Set(
+          orders
+            .map((order) => order.referral_code)
+            .filter(
+              (code): code is string =>
+                typeof code === 'string' && code.trim() !== '',
+            ),
+        ),
+      ];
+
+      if (referralCodes.length > 0) {
+        const {
+          data: referrals,
+          error: referralError,
+        } = await supabase
+          .from('referrals')
+          .select('referral_code, name, phone, commission')
+          .in('referral_code', referralCodes);
+
+        if (referralError) {
+          console.error(
+            'Supabase referral lookup error:',
+            referralError,
+          );
+
+          return res.status(500).json({
+            success: false,
+            message: 'Failed to fetch referral details',
+          });
+        }
+
+        const referralMap = new Map(
+          (referrals ?? []).map((referral) => [
+            referral.referral_code,
+            referral,
+          ]),
+        );
+
+        orders = orders.map((order) => {
+          if (!order.referral_code) {
+            return order;
+          }
+
+          const referral = referralMap.get(
+            order.referral_code,
+          );
+
+          if (!referral) {
+            return {
+              ...order,
+              referral: null,
+            };
+          }
+
+          return {
+            ...order,
+            referral: {
+              name: referral.name,
+              phone: referral.phone,
+              commission: referral.commission,
+            },
+          };
+        });
+      }
+    }
+
     const total = count ?? 0;
     const totalPages =
       total === 0
@@ -403,7 +483,7 @@ export const getOrders = async (
 
     return res.status(200).json({
       success: true,
-      orders: data ?? [],
+      orders,
       pagination: {
         page: parsedPage,
         limit: parsedLimit,

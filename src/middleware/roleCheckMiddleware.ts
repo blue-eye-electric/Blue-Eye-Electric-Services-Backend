@@ -1,6 +1,7 @@
-import { Request, Response, NextFunction } from "express";
+import { Response, NextFunction } from "express";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { AuthRequest } from './authMiddleware';
+import { AuthRequest } from "./authMiddleware";
+import { isUserAdmin } from "../helpers/isUserAdmin";
 
 const SUPABASE_URL = process.env.SUPABASE_URL!;
 
@@ -37,9 +38,18 @@ export const requireAdmin = async (
       });
     }
 
+    const admin = await isUserAdmin(payload.sub);
+
+    if (!admin) {
+      return res.status(403).json({
+        success: false,
+        message: "Admin access required",
+      });
+    }
+
     req.user = {
       id: payload.sub,
-      role: 'admin',
+      role: "admin",
     };
 
     next();
