@@ -7,6 +7,7 @@ import orderRoutes from './routes/orderRoutes';
 import electricianRoutes from './routes/electricianRoutes';
 import adminRoutes from './routes/adminRoutes';
 import serviceAreaRoutes from './routes/serviceAreaRoutes';
+import referralRoutes from './routes/referralRoutes';
 import {
   forgotPassword,
   loginUser,
@@ -17,6 +18,7 @@ import { deleteExpiredOrderPhotos } from './helpers/deleteExpiredOrderPhotos';
 const app = express();
 
 const allowedOrigins = [
+  // 'http://localhost:5173',
   'https://www.blueeyeelectric.com',
 ];
 
@@ -58,6 +60,7 @@ app.use('/api', orderRoutes);
 app.use('/api', electricianRoutes);
 app.use('/api', adminRoutes);
 app.use('/api', serviceAreaRoutes);
+app.use('/api', referralRoutes);
 
 const PORT = Number(process.env.PORT) || 4000;
 
