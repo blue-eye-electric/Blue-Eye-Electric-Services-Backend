@@ -22,10 +22,14 @@ export const createOrder = async (
       serviceTime,
       serviceArea,
       description,
-      isProjectDiscussion
+      isProjectDiscussion,
+      referralCode,
     } = req.body;
 
     const normalizedServiceArea = String(serviceArea ?? '').trim();
+    const normalizedReferralCode = String(referralCode ?? '')
+      .trim()
+      .toUpperCase();
 
     // Validate required fields
     if (
@@ -38,6 +42,34 @@ export const createOrder = async (
         success: false,
         message: 'Required fields are missing',
       });
+    }
+
+    let referralCommission: number | null = null;
+
+    if (normalizedReferralCode) {
+      const { data: referral, error: referralError } = await supabase
+        .from('referrals')
+        .select('referral_code, commission')
+        .eq('referral_code', normalizedReferralCode)
+        .maybeSingle();
+
+      if (referralError) {
+        console.error('Supabase referral lookup error:', referralError);
+
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to validate referral code',
+        });
+      }
+
+      if (!referral) {
+        return res.status(400).json({
+          success: false,
+          message: 'Wrong referral code, check the referral code and try again',
+        });
+      }
+
+      referralCommission = referral.commission;
     }
 
     /*
@@ -76,6 +108,8 @@ export const createOrder = async (
         inspection,
         service_type: service,
         is_project_discussion: isProjectDiscussion,
+        referral_code: normalizedReferralCode || null,
+        referral_commission: referralCommission,
         photo_urls: [],
       })
       .select('id')
@@ -217,7 +251,6 @@ export const createOrder = async (
     return res.status(201).json({
       success: true,
       orderId,
-      photoUrls,
     });
   } catch (error) {
     console.error('Create order error:', error);
