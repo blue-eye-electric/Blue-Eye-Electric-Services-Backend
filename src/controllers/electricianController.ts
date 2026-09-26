@@ -317,6 +317,13 @@ const files = req.files as {
       });
     }
 
+    if(normalizedMobileNumber.length!=10){
+      return res.status(400).json({
+        success: false,
+        message: 'Mobile number must contain 10 digits',
+      });
+    }
+
     if (!/^\d{12}$/.test(String(validIdNumber).trim())) {
       return res.status(400).json({
         success: false,
