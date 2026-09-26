@@ -45,6 +45,13 @@ export const createOrder = async (
       });
     }
 
+    if(customerPhone.trim().length!=10){
+      return res.status(400).json({
+        success: false,
+        message: 'Mobile number must contain 10 digits',
+      });
+    }
+
     let referralCommission: number | null = null;
 
     if (normalizedReferralCode) {
