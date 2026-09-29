@@ -1,71 +1,75 @@
 import { supabase } from "../config/supabase";
-import { getStoragePathFromUrl } from "./getStoragePathFromUrl";
 
 export const deleteExpiredOrderPhotos = async () => {
-  try {
-    const expiryDate = new Date();
-    expiryDate.setDate(expiryDate.getDate() - 15);
+  const expiryDate = new Date();
+  expiryDate.setDate(expiryDate.getDate() - 15);
 
-    const { data: orders, error } = await supabase
-      .from("orders")
-      .select("id, photo_urls, created_at")
-      .lt("created_at", expiryDate.toISOString())
-      .not("photo_urls", "is", null);
+  const { data: orders, error } = await supabase
+    .from("orders")
+    .select("id, photo_urls, created_at")
+    .lt("created_at", expiryDate.toISOString())
+    .not("photo_urls", "is", []);
 
-    if (error) {
-      console.error("Error fetching expired orders:", error);
-      return;
+  if (error) {
+    console.error('Get error while get expired orders');
+  }
+
+  if (!orders || orders.length === 0) {
+    console.log('No expire order found')
+    return;
+  }
+
+  const failures: string[] = [];
+
+  for (const order of orders) {
+    const { data: files, error: listError } = await supabase.storage
+      .from("orderPhotos")
+      .list(order.id, { limit: 100 });
+
+    if (listError) {
+      console.error(`Failed to list photos for order ${order.id}:`, listError);
+      failures.push(order.id);
+      continue;
     }
 
-    if (!orders || orders.length === 0) {
-      // console.log("No expired order photos found.");
-      return;
-    }
+    const photoPaths = (files ?? []).map(
+      (file) => `${order.id}/${file.name}`,
+    );
 
-    for (const order of orders) {
-      const photoUrls: string[] = Array.isArray(order.photo_urls)
-        ? order.photo_urls
-        : [];
-      const photoPaths = photoUrls
-        .map((photoUrl: string) =>
-          getStoragePathFromUrl(photoUrl, "orderPhotos", true),
-        )
-        .filter((photoPath): photoPath is string => Boolean(photoPath))
-        .map((photoPath) => photoPath.replace(/^\/+/, ""));
+    if (photoPaths.length > 0) {
+      const { error: deleteError } = await supabase.storage
+        .from("orderPhotos")
+        .remove(photoPaths);
 
-      if (photoPaths.length > 0) {
-        const { error: deleteError } = await supabase.storage
-          .from("orderPhotos")
-          .remove(photoPaths);
-
-        if (deleteError) {
-          console.error(
-            `Failed to delete photos for order ${order.id}:`,
-            deleteError,
-          );
-          continue;
-        }
-      }
-
-      // Clear photo references from database
-      const { error: updateError } = await supabase
-        .from("orders")
-        .update({
-          photo_urls: [],
-        })
-        .eq("id", order.id);
-
-      if (updateError) {
+      if (deleteError) {
         console.error(
-          `Photos deleted but DB update failed for order ${order.id}:`,
-          updateError,
+          `Failed to delete photos for order ${order.id}:`,
+          deleteError,
         );
+        failures.push(order.id);
         continue;
       }
-
-      // console.log(`Deleted order photos for order ${order.id}`);
     }
-  } catch (error) {
-    console.error("Expired order photo cleanup error:", error);
+
+    const { error: updateError } = await supabase
+      .from("orders")
+      .update({
+        photo_urls: [],
+      })
+      .eq("id", order.id);
+
+    if (updateError) {
+      console.error(
+        `Photos deleted but DB update failed for order ${order.id}:`,
+        updateError,
+      );
+      failures.push(order.id);
+    }
   }
+
+  if (failures.length > 0) {
+    console.error(`Photo cleanup failed for ${failures.length} order(s)`);
+  }
+
+  console.log(`Photo cleanup done on : ${new Date().getDate()}`)
 };
